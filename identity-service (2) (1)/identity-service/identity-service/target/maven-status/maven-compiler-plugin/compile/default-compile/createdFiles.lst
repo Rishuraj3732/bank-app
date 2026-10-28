@@ -1,0 +1,16 @@
+com\example\authservice\dto\ErrorResponse$ErrorResponseBuilder.class
+com\example\authservice\exception\GlobalExceptionHandler.class
+com\example\authservice\service\JwtService.class
+com\example\authservice\config\AuthConfig.class
+com\example\authservice\entity\UserCredential.class
+com\example\authservice\exception\DelegatedAuthenticationEntryPoint.class
+com\example\authservice\controller\AuthController.class
+com\example\authservice\dto\ErrorResponse.class
+com\example\authservice\config\CustomUserDetails.class
+com\example\authservice\exception\UserAlreadyExistsException.class
+com\example\authservice\config\CustomUserDetailsService.class
+com\example\authservice\service\AuthService.class
+com\example\authservice\dto\AuthRequest.class
+com\example\authservice\repository\UserCredentialRepository.class
+com\example\authservice\exception\AuthException.class
+com\example\authservice\IdentityServiceApplication.class

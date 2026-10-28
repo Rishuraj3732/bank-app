@@ -1,0 +1,98 @@
+services:
+  
+  discoveryservice:
+    build:
+      context: ./DiscoveryService/DiscoveryService
+    image: discoveryservice:latest
+    ports:
+      - "8761:8761"
+    restart: unless-stopped
+    networks:
+      - bank-net
+
+  accountservice:
+    build:
+      context: ./AccountService/AccountService
+    image: accountservice:latest
+    command:
+      - --eureka.client.service-url.defaultZone=http://discoveryservice:8761/eureka/
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/csb
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD before starting Compose}"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discoveryservice:8761/eureka/
+    depends_on:
+      - discoveryservice
+    restart: unless-stopped
+    networks:
+      - bank-net
+
+  customerservice:
+    build:
+      context: ./CustomerService/CustomerService
+    image: customer-service:latest
+    command:
+      - --eureka.client.service-url.defaultZone=http://discoveryservice:8761/eureka/
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/csb
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD before starting Compose}"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discoveryservice:8761/eureka/
+    depends_on:
+      - discoveryservice
+    restart: unless-stopped
+    networks:
+      - bank-net
+
+  identityservice:
+    build:
+      context: ./identity-service (2) (1)/identity-service/identity-service
+    image: identity-service:latest
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/csb
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD before starting Compose}"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discoveryservice:8761/eureka/
+    depends_on:
+      - discoveryservice
+    restart: unless-stopped
+    networks:
+      - bank-net
+
+  swiggygateway:
+    build:
+      context: ./swiggy-gateway (2)/swiggy-gateway/swiggy-gateway
+    image: swiggy-gateway:latest
+    ports:
+      - "8765:8765"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discoveryservice:8761/eureka/
+    depends_on:
+      - discoveryservice
+    restart: unless-stopped
+    networks:
+      - bank-net
+
+  bankfrontend:
+    build:
+      context: ./BankService/BankService
+      args:
+        VITE_AUTH_API_URL: http://localhost:8765
+        VITE_BANK_API_URL: http://localhost:8765
+    image: bank-frontend:latest
+    ports:
+      - "3000:80"
+    depends_on:
+      - swiggygateway
+    restart: unless-stopped
+    networks:
+      - bank-net
+
+networks:
+  bank-net:
+    external: true
+    name: bank-net

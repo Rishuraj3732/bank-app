@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bankfrontend
+  namespace: bank
+spec:
+  selector:
+    app: bankfrontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bankfrontend
+  namespace: bank
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bankfrontend
+  template:
+    metadata:
+      labels:
+        app: bankfrontend
+    spec:
+      containers:
+        - name: bankfrontend
+          image: bank-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
