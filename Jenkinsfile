@@ -48,7 +48,7 @@ if errorlevel 1 exit /b 1
                 bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "DiscoveryService\\DiscoveryService\\pom.xml" -DskipTests package'
                 bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "AccountService\\AccountService\\pom.xml" -DskipTests package'
                 bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "CustomerService\\CustomerService\\pom.xml" -DskipTests package'
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "identity-service (2) (1)\\identity-service\\pom.xml" -DskipTests package'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "identity-service (2) (1)\\identity-service\\identity-service\\pom.xml" -DskipTests package'
                 bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "swiggy-gateway (2)\\swiggy-gateway\\swiggy-gateway\\pom.xml" -DskipTests package'
             }
         }
