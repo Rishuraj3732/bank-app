@@ -1,6 +1,11 @@
 pipeline {
     agent any
 
+    environment {
+        KUBECONFIG = 'C:\\Users\\HP\\.kube\\config'
+        MAVEN_HOME = 'C:\\Program Files\\apache-maven-3.9.16'
+    }
+
     options {
         timestamps()
     }
@@ -9,9 +14,10 @@ pipeline {
         stage('Check tools and cluster') {
             steps {
                 bat 'java -version'
-                bat 'mvn.cmd -version'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -version'
                 bat 'docker info'
-                bat 'kubectl config current-context'
+                bat 'kubectl config use-context docker-desktop'
+                bat 'kubectl get --raw=/version'
                 bat 'kubectl get nodes'
                 bat 'if not exist .env (echo Required root .env file is missing.& exit /b 1)'
                 bat 'findstr /R /C:"^[ ]*MYSQL_ROOT_PASSWORD[ ]*=" .env >nul || (echo MYSQL_ROOT_PASSWORD is missing from root .env.& exit /b 1)'
@@ -29,11 +35,11 @@ pipeline {
 
         stage('Package Java services') {
             steps {
-                bat 'mvn.cmd -f "DiscoveryService\\DiscoveryService\\pom.xml" -DskipTests package'
-                bat 'mvn.cmd -f "AccountService\\AccountService\\pom.xml" -DskipTests package'
-                bat 'mvn.cmd -f "CustomerService\\CustomerService\\pom.xml" -DskipTests package'
-                bat 'mvn.cmd -f "identity-service (2) (1)\\identity-service\\identity-service\\pom.xml" -DskipTests package'
-                bat 'mvn.cmd -f "swiggy-gateway (2)\\swiggy-gateway\\swiggy-gateway\\pom.xml" -DskipTests package'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "DiscoveryService\\DiscoveryService\\pom.xml" -DskipTests package'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "AccountService\\AccountService\\pom.xml" -DskipTests package'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "CustomerService\\CustomerService\\pom.xml" -DskipTests package'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "identity-service (2) (1)\\identity-service\\pom.xml" -DskipTests package'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "swiggy-gateway (2)\\swiggy-gateway\\swiggy-gateway\\pom.xml" -DskipTests package'
             }
         }
 
