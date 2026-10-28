@@ -19,14 +19,11 @@ pipeline {
                 bat '''
 @echo off
 kubectl config get-contexts
-kubectl config get-contexts -o name | findstr /X /C:"docker-desktop" >nul
+kubectl config use-context docker-desktop
 if errorlevel 1 (
-    echo ERROR: docker-desktop context is missing from %KUBECONFIG%.
-    echo Enable Kubernetes in Docker Desktop, then rerun this pipeline.
+    echo ERROR: Could not select docker-desktop from %KUBECONFIG%.
     exit /b 1
 )
-kubectl config use-context docker-desktop
-if errorlevel 1 exit /b 1
 kubectl get --raw=/version
 if errorlevel 1 exit /b 1
 kubectl get nodes
