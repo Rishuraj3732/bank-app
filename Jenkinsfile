@@ -16,9 +16,22 @@ pipeline {
                 bat 'java -version'
                 bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -version'
                 bat 'docker info'
-                bat 'kubectl config use-context docker-desktop'
-                bat 'kubectl get --raw=/version'
-                bat 'kubectl get nodes'
+                bat '''
+@echo off
+kubectl config get-contexts
+kubectl config get-contexts -o name | findstr /X /C:"docker-desktop" >nul
+if errorlevel 1 (
+    echo ERROR: docker-desktop context is missing from %KUBECONFIG%.
+    echo Enable Kubernetes in Docker Desktop, then rerun this pipeline.
+    exit /b 1
+)
+kubectl config use-context docker-desktop
+if errorlevel 1 exit /b 1
+kubectl get --raw=/version
+if errorlevel 1 exit /b 1
+kubectl get nodes
+if errorlevel 1 exit /b 1
+'''
                 bat 'if not exist .env (echo Required root .env file is missing.& exit /b 1)'
                 bat 'findstr /R /C:"^[ ]*MYSQL_ROOT_PASSWORD[ ]*=" .env >nul || (echo MYSQL_ROOT_PASSWORD is missing from root .env.& exit /b 1)'
             }
