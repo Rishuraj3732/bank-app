@@ -12,6 +12,7 @@ spring:
             allowedOrigins:
               - "${FRONTEND_ORIGIN_VITE:http://localhost:5173}"
               - "${FRONTEND_ORIGIN_LOCAL:http://localhost:3000}"
+              - "${FRONTEND_ORIGIN_NODEPORT:http://localhost:30080}"
             allowedMethods:
               - GET
               - POST
