@@ -30,8 +30,8 @@ spec:
     spec:
       containers:
         - name: bankfrontend
-          image: bank-frontend:latest
-          imagePullPolicy: IfNotPresent
+          image: rishuraj1/bank-frontend:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 80

@@ -8,19 +8,39 @@ uses Eureka to find the application services.
 1. Build the JARs before building the images. Run `.\mvnw.cmd -DskipTests package`
    in each Java service directory. For the Gateway and Identity Service, use
    `mvn.cmd -DskipTests package` if their Maven wrapper files are incomplete.
-2. From the project root, build the local images:
+2. The Kubernetes manifests pull versioned images from the public Docker Hub
+   repositories under `rishuraj1`. Jenkins tags each image with its build
+   number and deploys that exact tag. Create these repositories in Docker Hub
+   and make them public so the local cluster can pull without a registry Secret:
+   `discoveryservice`, `accountservice`, `customer-service`, `identity-service`,
+   `swiggy-gateway`, and `bank-frontend`.
 
    ```powershell
-   docker build -t discoveryservice:latest .\DiscoveryService\DiscoveryService
-   docker build -t accountservice:latest .\AccountService\AccountService
-   docker build -t customer-service:latest .\CustomerService\CustomerService
-   docker build -t identity-service:latest '.\identity-service (2) (1)\identity-service\identity-service'
-   docker build -t swiggy-gateway:latest '.\swiggy-gateway (2)\swiggy-gateway\swiggy-gateway'
-   docker build -t bank-frontend:latest --build-arg VITE_AUTH_API_URL=http://localhost:8765 --build-arg VITE_BANK_API_URL=http://localhost:8765 .\BankService\BankService
+   docker login
    ```
 
-   These local image names are intended for Docker Desktop Kubernetes. For
-   Minikube, load each image into Minikube after building it.
+   For a manual deployment, build and push each image with the same tag, then
+   render that tag into the Kubernetes manifests:
+
+   ```powershell
+   $tag = 'build-manual'
+   docker build -t "rishuraj1/discoveryservice:$tag" .\DiscoveryService\DiscoveryService
+   docker build -t "rishuraj1/accountservice:$tag" .\AccountService\AccountService
+   docker build -t "rishuraj1/customer-service:$tag" .\CustomerService\CustomerService
+   docker build -t "rishuraj1/identity-service:$tag" '.\identity-service (2) (1)\identity-service\identity-service'
+   docker build -t "rishuraj1/swiggy-gateway:$tag" '.\swiggy-gateway (2)\swiggy-gateway\swiggy-gateway'
+   docker build -t "rishuraj1/bank-frontend:$tag" --build-arg VITE_AUTH_API_URL=http://localhost:8765 --build-arg VITE_BANK_API_URL=http://localhost:8765 .\BankService\BankService
+   docker push "rishuraj1/discoveryservice:$tag"
+   docker push "rishuraj1/accountservice:$tag"
+   docker push "rishuraj1/customer-service:$tag"
+   docker push "rishuraj1/identity-service:$tag"
+   docker push "rishuraj1/swiggy-gateway:$tag"
+   docker push "rishuraj1/bank-frontend:$tag"
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\render-k8s.ps1 -ImageNamespace rishuraj1 -ImageTag $tag -OutputDirectory k8s-deploy-manual
+   ```
+
+   The command above pushes each generated versioned image to Docker Hub. Remove
+   `k8s-deploy-manual` after applying the manifests.
 3. Keep a root `.env` with `MYSQL_ROOT_PASSWORD` for this tutorial. Jenkins
    reads that value and creates the `bank-database` Secret on first deployment;
    it leaves an existing Secret unchanged so it does not desynchronize
@@ -31,12 +51,15 @@ uses Eureka to find the application services.
    MYSQL_ROOT_PASSWORD=tutorial-only-password
    ```
 
-4. To deploy through Jenkins, commit the root `Jenkinsfile` and `.env`, then
-   create a Jenkins **Pipeline** job using **Pipeline script from SCM** and
-   the public GitHub repository. The pipeline builds the local images,
+4. To deploy through Jenkins, commit the root `Jenkinsfile`, `scripts\render-k8s.ps1`,
+   manifests, and `.env`, then create a Jenkins **Pipeline** job using
+   **Pipeline script from SCM** and the public GitHub repository. The pipeline
+   builds and publishes versioned images,
    provisions the Secret if it is missing, and deploys in dependency order.
-   The Jenkins Windows account must have Docker Desktop, Maven, Java, and the
-   active Kubernetes context available on its PATH/profile.
+   Add a Jenkins **Username with password** credential with ID
+   `dockerhub-credentials`; use the Docker Hub username and an access token as
+   the password. The Jenkins Windows account must have Docker Desktop, Maven,
+   Java, and the active Kubernetes context available on its PATH/profile.
 
    For a manual deployment instead, create the namespace and Secret once:
 
@@ -48,7 +71,9 @@ uses Eureka to find the application services.
    Then apply the manifests and wait for workloads:
 
    ```powershell
-   kubectl apply -f .\k8s\
+   kubectl apply -f .\k8s\01-namespace.yaml
+   kubectl apply -f .\k8s\03-mysql.yaml
+   kubectl apply -f .\k8s-deploy-manual
    kubectl get pods,services -n bank
    kubectl rollout status deployment/discoveryservice -n bank
    kubectl rollout status deployment/accountservice -n bank

@@ -28,8 +28,8 @@ spec:
     spec:
       containers:
         - name: accountservice
-          image: accountservice:latest
-          imagePullPolicy: IfNotPresent
+          image: rishuraj1/accountservice:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8082
@@ -99,8 +99,8 @@ spec:
     spec:
       containers:
         - name: customerservice
-          image: customer-service:latest
-          imagePullPolicy: IfNotPresent
+          image: rishuraj1/customer-service:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8081
@@ -170,8 +170,8 @@ spec:
     spec:
       containers:
         - name: identityservice
-          image: identity-service:latest
-          imagePullPolicy: IfNotPresent
+          image: rishuraj1/identity-service:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 9898
@@ -243,8 +243,8 @@ spec:
     spec:
       containers:
         - name: swiggygateway
-          image: swiggy-gateway:latest
-          imagePullPolicy: IfNotPresent
+          image: rishuraj1/swiggy-gateway:latest
+          imagePullPolicy: Always
           args:
             - "--spring.cloud.gateway.globalcors.cors-configurations.[/**].allowed-origins[0]=http://localhost:5173"
             - "--spring.cloud.gateway.globalcors.cors-configurations.[/**].allowed-origins[1]=http://localhost:3000"

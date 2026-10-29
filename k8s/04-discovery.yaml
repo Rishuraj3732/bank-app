@@ -28,8 +28,8 @@ spec:
     spec:
       containers:
         - name: discoveryservice
-          image: discoveryservice:latest
-          imagePullPolicy: IfNotPresent
+          image: rishuraj1/discoveryservice:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8761

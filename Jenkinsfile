@@ -4,6 +4,7 @@ pipeline {
     environment {
         KUBECONFIG = 'C:\\Users\\HP\\.kube\\config'
         MAVEN_HOME = 'C:\\Program Files\\apache-maven-3.9.16'
+        DOCKERHUB_NAMESPACE = 'rishuraj1'
     }
 
     options {
@@ -71,18 +72,51 @@ if errorlevel 1 exit /b 1
             }
         }
 
+        stage('Publish versioned images') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKERHUB_USERNAME',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
+                    )]) {
+                        try {
+                            bat '''
+@echo off
+@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$env:DOCKERHUB_TOKEN | docker login --username $env:DOCKERHUB_USERNAME --password-stdin"
+if errorlevel 1 exit /b 1
+'''
+                            def images = [
+                                [local: 'discoveryservice', remote: 'discoveryservice'],
+                                [local: 'accountservice', remote: 'accountservice'],
+                                [local: 'customer-service', remote: 'customer-service'],
+                                [local: 'identity-service', remote: 'identity-service'],
+                                [local: 'swiggy-gateway', remote: 'swiggy-gateway'],
+                                [local: 'bank-frontend', remote: 'bank-frontend']
+                            ]
+                            images.each { image ->
+                                bat "docker tag ${image.local}:latest %DOCKERHUB_NAMESPACE%/${image.remote}:build-%BUILD_NUMBER%"
+                                bat "docker push %DOCKERHUB_NAMESPACE%/${image.remote}:build-%BUILD_NUMBER%"
+                            }
+                        } finally {
+                            bat 'docker logout'
+                        }
+                    }
+                }
+            }
+        }
+
         stage('Deploy to Kubernetes') {
             steps {
-                bat 'kubectl apply -f k8s'
-                bat 'kubectl rollout restart deployment/discoveryservice -n bank'
+                bat 'kubectl apply -f k8s\\01-namespace.yaml'
+                bat 'kubectl apply -f k8s\\03-mysql.yaml'
+                bat 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\render-k8s.ps1 -ImageNamespace "%DOCKERHUB_NAMESPACE%" -ImageTag build-%BUILD_NUMBER% -OutputDirectory "k8s-deploy-%BUILD_NUMBER%"'
+                bat 'kubectl apply -f "k8s-deploy-%BUILD_NUMBER%"'
                 bat 'kubectl rollout status deployment/discoveryservice -n bank --timeout=300s'
-                bat 'kubectl rollout restart deployment/accountservice deployment/customerservice deployment/identityservice -n bank'
                 bat 'kubectl rollout status deployment/accountservice -n bank --timeout=300s'
                 bat 'kubectl rollout status deployment/customerservice -n bank --timeout=300s'
                 bat 'kubectl rollout status deployment/identityservice -n bank --timeout=300s'
-                bat 'kubectl rollout restart deployment/swiggygateway -n bank'
                 bat 'kubectl rollout status deployment/swiggygateway -n bank --timeout=300s'
-                bat 'kubectl rollout restart deployment/bankfrontend -n bank'
                 bat 'kubectl rollout status deployment/bankfrontend -n bank --timeout=300s'
                 bat 'kubectl rollout status statefulset/mysql -n bank --timeout=300s'
             }
@@ -90,6 +124,11 @@ if errorlevel 1 exit /b 1
     }
 
     post {
+        always {
+            bat '''
+@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$path = Join-Path $env:WORKSPACE ('k8s-deploy-' + $env:BUILD_NUMBER); if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }"
+'''
+        }
         success {
             echo 'Build and Kubernetes deployment completed.'
         }
