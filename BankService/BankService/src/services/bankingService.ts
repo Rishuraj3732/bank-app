@@ -69,7 +69,7 @@ function readApiError(body: unknown, fallback: string) {
   return validationErrors || error.message || error.error || fallback
 }
 
-export function getCustomerProfile(token: string) {
+export function getCustomers(token: string) {
   return request<unknown>('/api/v1/customers', token)
 }
 
@@ -88,7 +88,7 @@ export function getCustomerSavingsSummary(token: string, customerId: number) {
   return request<unknown>(`/api/v1/customers/savings/${customerId}`, token)
 }
 
-export function getSavingsProfile(token: string) {
+export function getSavingsAccounts(token: string) {
   return request<unknown>('/api/v1/savings', token)
 }
 

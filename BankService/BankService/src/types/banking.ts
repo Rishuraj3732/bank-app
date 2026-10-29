@@ -31,10 +31,5 @@ export type SavingsAccount = {
 
 export type AdminOutletContext = {
   admin: Admin
-  customers: Customer[]
-  createdCustomers: Customer[]
-  savings: SavingsAccount[]
   notify: (message: string) => void
-  addCustomer: (customer: Customer) => void
-  addSavings: (account: SavingsAccount) => void
 }

@@ -2,12 +2,13 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { EmptyState } from '../components/BankingData'
 import Icon from '../components/Icon'
-import { mapApiSavings } from '../data/apiMappers'
+import { mapApiCustomers, mapApiSavings, mapApiSavingsAccounts } from '../data/apiMappers'
 import { currency } from '../data/formatting'
 import {
   createSavings,
   getCustomerSavingsSummary,
-  getSavingsProfile,
+  getCustomers,
+  getSavingsAccounts,
   type SavingsRequest,
 } from '../services/bankingService'
 import type { AdminOutletContext } from '../types/banking'
@@ -15,23 +16,37 @@ import type { AdminOutletContext } from '../types/banking'
 export default function SavingsPage() {
   const { admin } = useOutletContext<AdminOutletContext>()
   const [query, setQuery] = useState('')
-  const [apiProfile, setApiProfile] = useState<ReturnType<typeof mapApiSavings> | null>(null)
+  const [accounts, setAccounts] = useState<ReturnType<typeof mapApiSavings>[]>([])
   const [summaryId, setSummaryId] = useState('')
   const [summary, setSummary] = useState<ReturnType<typeof mapApiSavings> | null>(null)
   const [apiError, setApiError] = useState('')
+  const [customerLookupError, setCustomerLookupError] = useState('')
   const [apiLoading, setApiLoading] = useState(true)
-  const filtered = apiProfile
-    && `${apiProfile.customerId} ${apiProfile.accountNumber} ${apiProfile.id}`.toLowerCase().includes(query.toLowerCase())
-    ? [apiProfile]
-    : []
+  const filtered = accounts.filter((account) =>
+    `${account.customerId} ${account.customerName} ${account.accountNumber} ${account.id}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  )
 
-  async function loadProfile() {
+  async function loadAccounts() {
     setApiError('')
+    setCustomerLookupError('')
     setApiLoading(true)
     try {
-      setApiProfile(mapApiSavings(await getSavingsProfile(admin.token)))
+      const [savingsResult, customersResult] = await Promise.allSettled([
+        getSavingsAccounts(admin.token),
+        getCustomers(admin.token),
+      ])
+      if (savingsResult.status === 'rejected') throw savingsResult.reason
+      const customers = customersResult.status === 'fulfilled'
+        ? mapApiCustomers(customersResult.value)
+        : []
+      if (customersResult.status === 'rejected') {
+        setCustomerLookupError('Customer names are unavailable; account records are still shown.')
+      }
+      setAccounts(mapApiSavingsAccounts(savingsResult.value, customers))
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : 'Unable to load savings profile.')
+      setApiError(error instanceof Error ? error.message : 'Unable to load savings accounts.')
     } finally {
       setApiLoading(false)
     }
@@ -39,12 +54,20 @@ export default function SavingsPage() {
 
   useEffect(() => {
     let active = true
-    getSavingsProfile(admin.token)
-      .then((response) => {
-        if (active) setApiProfile(mapApiSavings(response))
+    Promise.allSettled([getSavingsAccounts(admin.token), getCustomers(admin.token)])
+      .then(([savingsResult, customersResult]) => {
+        if (!active) return
+        if (savingsResult.status === 'rejected') throw savingsResult.reason
+        const customers = customersResult.status === 'fulfilled'
+          ? mapApiCustomers(customersResult.value)
+          : []
+        if (customersResult.status === 'rejected') {
+          setCustomerLookupError('Customer names are unavailable; account records are still shown.')
+        }
+        setAccounts(mapApiSavingsAccounts(savingsResult.value, customers))
       })
       .catch((error: unknown) => {
-        if (active) setApiError(error instanceof Error ? error.message : 'Unable to load savings profile.')
+        if (active) setApiError(error instanceof Error ? error.message : 'Unable to load savings accounts.')
       })
       .finally(() => {
         if (active) setApiLoading(false)
@@ -75,22 +98,23 @@ export default function SavingsPage() {
   return (
     <div className="content-inner">
       <div className="page-heading">
-        <div><span className="section-kicker">SAVINGS SERVICE</span><h1>Savings accounts</h1><p>Savings profile data loaded from the Savings Service API.</p></div>
+        <div><span className="section-kicker">SAVINGS SERVICE</span><h1>Savings accounts</h1><p>All savings accounts loaded from the Savings Service.</p></div>
         <Link className="admin-primary" to="/savings/new"><Icon name="plus" /> Create savings</Link>
       </div>
 
       <section className="admin-card api-tools-card">
-        <div className="api-tools-copy"><strong>Savings service</strong><span>Showing the current profile; look up a customer’s savings summary by ID.</span></div>
+        <div className="api-tools-copy"><strong>Savings service</strong><span>Review the account directory or look up a customer’s savings summary by ID.</span></div>
         <div className="api-tools-actions">
           <form className="api-id-lookup" onSubmit={loadSummary}>
             <input aria-label="Customer ID for savings summary" type="number" min="1" value={summaryId} onChange={(event) => setSummaryId(event.target.value)} placeholder="Customer ID" required />
             <button className="admin-secondary" type="submit" disabled={apiLoading}>{apiLoading ? 'Loading…' : 'Get summary'}</button>
           </form>
-          <button className="admin-secondary" type="button" onClick={loadProfile} disabled={apiLoading}>{apiLoading ? 'Loading…' : 'Load profile'}</button>
+          <button className="admin-secondary" type="button" onClick={loadAccounts} disabled={apiLoading}>{apiLoading ? 'Loading…' : 'Refresh accounts'}</button>
         </div>
         {apiError && <div className="api-inline-error" role="alert">{apiError}</div>}
       </section>
 
+      {customerLookupError && <div className="api-inline-error" role="status">{customerLookupError}</div>}
       {summary !== null && (
         <section className="api-result-card">
           <div><span className="section-kicker">API RESPONSE</span><strong>Savings summary · Customer #{summaryId}</strong></div>
@@ -102,32 +126,50 @@ export default function SavingsPage() {
 
       <section className="admin-card full-table-card">
         <div className="list-toolbar">
-          <div className="list-heading"><strong>Savings profile</strong><span>{filtered.length} API record{filtered.length === 1 ? '' : 's'}</span></div>
+          <div className="list-heading"><strong>Savings accounts</strong><span>{filtered.length} account{filtered.length === 1 ? '' : 's'}</span></div>
           <div className="list-filters">
             <label className="search-control"><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search accounts" aria-label="Search accounts" /></label>
           </div>
         </div>
-        <div className="demo-data-label">LIVE SAVINGS SERVICE RESPONSE · THIS API PROVIDES A PROFILE, NOT AN ACCOUNT LIST</div>
-        {apiError && !apiProfile && !apiLoading && (
+        <div className="demo-data-label">LIVE ACCOUNT RECORDS FROM THE SAVINGS SERVICE</div>
+        {apiError && !apiLoading && (
           <div className="api-inline-error" role="alert">{apiError}</div>
         )}
         {filtered.length > 0 ? (
           <table className="data-table savings-table">
-            <thead><tr><th>ACCOUNT NO</th><th>CUSTOMER ID</th><th>OPENING DATE</th><th>BALANCE</th></tr></thead>
-            <tbody>{filtered.map((account) => <tr key={account.id}><td>{account.accountNumber}</td><td className="id-cell">CUS-{account.customerId}</td><td>{account.openingDate || '—'}</td><td className="balance-cell">{currency(account.balance)}</td></tr>)}</tbody>
+            <thead><tr><th>ACCOUNT NO</th><th>CUSTOMER</th><th>CUSTOMER ID</th><th>OPENING DATE</th><th>BALANCE</th></tr></thead>
+            <tbody>{filtered.map((account) => <tr key={account.id}><td>{account.accountNumber}</td><td>{account.customerName}</td><td className="id-cell">CUS-{account.customerId}</td><td>{account.openingDate || '—'}</td><td className="balance-cell">{currency(account.balance)}</td></tr>)}</tbody>
           </table>
-        ) : <EmptyState text={apiLoading ? 'Loading savings data from the service…' : apiError ? 'Unable to display savings data. Check the service connection.' : 'No savings profile returned from the service.'} />}
-        <div className="table-pagination"><span>Showing <strong>{filtered.length}</strong> API record{filtered.length === 1 ? '' : 's'}</span><div><button type="button" disabled aria-label="Previous page">←</button><button className="current-page" type="button">1</button><button type="button" disabled aria-label="Next page">→</button></div></div>
+        ) : <EmptyState text={apiLoading ? 'Loading savings accounts from the service…' : apiError ? 'Unable to display savings accounts. Check the service connection.' : 'No savings accounts have been created yet.'} />}
+        <div className="table-pagination"><span>Showing <strong>{filtered.length}</strong> of {accounts.length} account{accounts.length === 1 ? '' : 's'}</span></div>
       </section>
     </div>
   )
 }
 
 export function NewSavingsPage() {
-  const { admin, customers, addSavings, notify } = useOutletContext<AdminOutletContext>()
+  const { admin, notify } = useOutletContext<AdminOutletContext>()
   const navigate = useNavigate()
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [customers, setCustomers] = useState<ReturnType<typeof mapApiCustomers>>([])
+  const [customersLoading, setCustomersLoading] = useState(true)
+  const [customersError, setCustomersError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    getCustomers(admin.token)
+      .then((response) => {
+        if (active) setCustomers(mapApiCustomers(response))
+      })
+      .catch((requestError: unknown) => {
+        if (active) setCustomersError(requestError instanceof Error ? requestError.message : 'Unable to load customers.')
+      })
+      .finally(() => {
+        if (active) setCustomersLoading(false)
+      })
+    return () => { active = false }
+  }, [admin.token])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -145,7 +187,6 @@ export function NewSavingsPage() {
       const response = await createSavings(admin.token, request)
       const customer = customers.find((item) => item.id === customerId)
       const account = mapApiSavings(response, customer ? { id: customer.id, name: customer.name } : undefined)
-      addSavings(account)
       notify(`Savings account ${account.id} created successfully.`)
       navigate('/savings')
     } catch (requestError) {
@@ -161,11 +202,13 @@ export function NewSavingsPage() {
       <section className="admin-card form-page-card">
         {error && <div className="inline-error" role="alert">{error}</div>}
         <form className="route-form" onSubmit={submit}>
-          <label className="modal-field"><span>Customer ID</span><input name="customerId" type="number" min="1" placeholder="Enter an existing customer ID" required /></label>
+          <label className="modal-field"><span>Customer</span><select name="customerId" defaultValue="" required disabled={customersLoading || customers.length === 0}><option value="" disabled>{customersLoading ? 'Loading customers…' : 'Select a customer'}</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>CUS-{customer.id} · {customer.name}</option>)}</select></label>
+          {customersError && <div className="inline-error" role="alert">{customersError}</div>}
+          {!customersLoading && !customersError && customers.length === 0 && <div className="api-inline-error" role="status">Create a customer before opening a savings account.</div>}
           <label className="modal-field"><span>Opening date</span><input name="openingDate" type="date" max={getTodayDate()} required /></label>
           <label className="modal-field"><span>Opening balance</span><input name="balance" type="number" min="0" step="0.01" placeholder="0.00" required /></label>
-          <p className="form-hint">The customer must already exist. The Savings Service controls other account fields.</p>
-          <div className="dialog-actions"><Link className="admin-secondary" to="/savings">Cancel</Link><button className="admin-primary" type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create account'}</button></div>
+          <p className="form-hint">Select an existing customer. The Savings Service controls other account fields.</p>
+          <div className="dialog-actions"><Link className="admin-secondary" to="/savings">Cancel</Link><button className="admin-primary" type="submit" disabled={submitting || customersLoading || customers.length === 0}>{submitting ? 'Creating…' : 'Create account'}</button></div>
         </form>
       </section>
     </div>

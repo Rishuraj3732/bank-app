@@ -16,7 +16,7 @@ uses Eureka to find the application services.
    docker build -t customer-service:latest .\CustomerService\CustomerService
    docker build -t identity-service:latest '.\identity-service (2) (1)\identity-service\identity-service'
    docker build -t swiggy-gateway:latest '.\swiggy-gateway (2)\swiggy-gateway\swiggy-gateway'
-   docker build -t bank-frontend:latest --build-arg VITE_AUTH_API_URL=http://localhost:30765 --build-arg VITE_BANK_API_URL=http://localhost:30765 .\BankService\BankService
+   docker build -t bank-frontend:latest --build-arg VITE_AUTH_API_URL=http://localhost:8765 --build-arg VITE_BANK_API_URL=http://localhost:8765 .\BankService\BankService
    ```
 
    These local image names are intended for Docker Desktop Kubernetes. For
@@ -64,12 +64,26 @@ uses Eureka to find the application services.
    kubectl get services -n bank
    ```
 
-   The frontend Service exposes NodePort `30080`, and the Gateway exposes
-   NodePort `30765`. Open `http://localhost:30080`; the frontend calls the
-   Gateway at `http://localhost:30765`. If your local cluster does not expose
-   NodePorts through localhost, use a node address reachable from the host and
-   rebuild the frontend with that same Gateway address. The Gateway CORS
-   allowlist must also match the browser's frontend origin.
+   The frontend and Gateway Services use NodePorts `30080` and `30765`.
+   Docker Desktop's local Kubernetes kind cluster may not expose NodePorts
+   directly to Windows, so forward the Services using the browser URLs:
+
+   ```powershell
+   kubectl port-forward -n bank service/bankfrontend 30080:80
+   kubectl port-forward -n bank service/swiggygateway 8765:8765
+   ```
+
+   Keep both commands running and open `http://localhost:30080`. The frontend
+   calls the Gateway at `http://localhost:8765`; Gateway CORS allows the
+   frontend origin on port `30080`.
+
+The customer and savings directories use these authenticated collection
+endpoints:
+
+- `GET /api/v1/customers` returns all customer records.
+- `GET /api/v1/savings` returns all savings accounts.
+- `GET /api/v1/customers/{customerId}`, `GET /api/v1/customers/profile`, and
+  `GET /api/v1/savings/profile` remain available for individual profile data.
 
 Account, Customer, Identity, Gateway, and frontend run two replicas. Eureka is
 kept at one replica because this project configures a standalone registry;

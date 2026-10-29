@@ -3,12 +3,12 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { EmptyState } from '../components/BankingData'
 import Icon from '../components/Icon'
-import { mapApiCustomer, mapApiSavings } from '../data/apiMappers'
+import { mapApiCustomer, mapApiCustomers, mapApiSavings } from '../data/apiMappers'
 import { currency, getInitials } from '../data/formatting'
 import {
   createCustomer,
   getCustomerById,
-  getCustomerProfile,
+  getCustomers,
   getCustomerSavingsSummary,
   getSavingsPortFromCustomerService,
   type CustomerRequest,
@@ -16,9 +16,9 @@ import {
 import type { AdminOutletContext, Customer } from '../types/banking'
 
 export default function CustomersPage() {
-  const { admin, createdCustomers } = useOutletContext<AdminOutletContext>()
+  const { admin } = useOutletContext<AdminOutletContext>()
   const [query, setQuery] = useState('')
-  const [apiCustomers, setApiCustomers] = useState<Customer[]>(createdCustomers)
+  const [apiCustomers, setApiCustomers] = useState<Customer[]>([])
   const [selected, setSelected] = useState<Customer | null>(null)
   const [lookupId, setLookupId] = useState('')
   const [lookupError, setLookupError] = useState('')
@@ -33,14 +33,13 @@ export default function CustomersPage() {
       .includes(query.toLowerCase())
   }), [apiCustomers, query])
 
-  async function loadProfile() {
+  async function loadCustomers() {
     setLookupError('')
     setLookupLoading(true)
     try {
-      const profile = mapApiCustomer(await getCustomerProfile(admin.token))
-      setApiCustomers((current) => upsertCustomer(current, profile))
+      setApiCustomers(mapApiCustomers(await getCustomers(admin.token)))
     } catch (error) {
-      setLookupError(error instanceof Error ? error.message : 'Unable to load customer profile.')
+      setLookupError(error instanceof Error ? error.message : 'Unable to load customers.')
     } finally {
       setLookupLoading(false)
     }
@@ -48,15 +47,14 @@ export default function CustomersPage() {
 
   useEffect(() => {
     let active = true
-    getCustomerProfile(admin.token)
+    getCustomers(admin.token)
       .then((response) => {
         if (active) {
-          const profile = mapApiCustomer(response)
-          setApiCustomers((current) => upsertCustomer(current, profile))
+          setApiCustomers(mapApiCustomers(response))
         }
       })
       .catch((error: unknown) => {
-        if (active) setLookupError(error instanceof Error ? error.message : 'Unable to load customer profile.')
+        if (active) setLookupError(error instanceof Error ? error.message : 'Unable to load customers.')
       })
       .finally(() => {
         if (active) setLookupLoading(false)
@@ -124,17 +122,17 @@ export default function CustomersPage() {
   return (
     <div className="content-inner">
       <div className="page-heading">
-        <div><span className="section-kicker">CUSTOMER SERVICE</span><h1>Customers</h1><p>Customer profile data loaded from the Customer Service API.</p></div>
+        <div><span className="section-kicker">CUSTOMER SERVICE</span><h1>Customers</h1><p>Customer records loaded from the Customer Service API.</p></div>
         <Link className="admin-primary" to="/customers/new"><Icon name="plus" /> Add customer</Link>
       </div>
       <section className="admin-card api-tools-card">
-        <div className="api-tools-copy"><strong>Customer service</strong><span>Showing the current profile; look up another customer by ID.</span></div>
+        <div className="api-tools-copy"><strong>Customer service</strong><span>Customer directory loaded from the database; look up an individual record by ID.</span></div>
         <div className="api-tools-actions">
           <form className="api-id-lookup" onSubmit={loadCustomerById}>
             <input aria-label="Customer ID" type="number" min="1" value={lookupId} onChange={(event) => setLookupId(event.target.value)} placeholder="Customer ID" required />
             <button className="admin-secondary" type="submit" disabled={lookupLoading}>{lookupLoading ? 'Loading…' : 'Find by ID'}</button>
           </form>
-          <button className="admin-secondary" type="button" onClick={loadProfile} disabled={lookupLoading}>{lookupLoading ? 'Loading…' : 'Load profile'}</button>
+          <button className="admin-secondary" type="button" onClick={loadCustomers} disabled={lookupLoading}>{lookupLoading ? 'Loading…' : 'Refresh customers'}</button>
           <button className="admin-secondary" type="button" onClick={loadSavingsSummary} disabled={endpointLoading}>{endpointLoading ? 'Loading…' : 'Savings summary'}</button>
           <button className="admin-secondary" type="button" onClick={loadSavingsPort} disabled={endpointLoading}>{endpointLoading ? 'Checking…' : 'Check savings service'}</button>
         </div>
@@ -162,7 +160,7 @@ export default function CustomersPage() {
             <label className="search-control"><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search customers" aria-label="Search customers" /></label>
           </div>
         </div>
-        <div className="demo-data-label">CUSTOMERS CREATED OR LOOKED UP THROUGH THE API · NO LIST-ALL ENDPOINT IS AVAILABLE</div>
+        <div className="demo-data-label">LIVE CUSTOMER RECORDS FROM THE CUSTOMER SERVICE</div>
         {lookupLoading && apiCustomers.length === 0
           ? <EmptyState text="Loading customer data from the service…" />
           : filtered.length > 0
@@ -179,7 +177,7 @@ export default function CustomersPage() {
               </tr>)}</tbody>
             </table>
             : <EmptyState text={lookupError ? 'Unable to display customer data. Check the service connection or search for a customer ID.' : 'No customer data returned from the service.'} />}
-        <div className="table-pagination"><span>Showing <strong>{filtered.length}</strong> service record{filtered.length === 1 ? '' : 's'}</span><div><button type="button" disabled aria-label="Previous page">←</button><button className="current-page" type="button">1</button><button type="button" disabled aria-label="Next page">→</button></div></div>
+        <div className="table-pagination"><span>Showing <strong>{filtered.length}</strong> of {apiCustomers.length} customer record{apiCustomers.length === 1 ? '' : 's'}</span></div>
       </section>
       <section className="admin-card api-tools-card customer-loans-note">
         <div className="api-tools-copy"><strong>Loans endpoint</strong><span>GET /api/v1/customers/loans/{'{customerid}'} is present in the controller but currently returns null, so no loan data is shown.</span></div>
@@ -213,7 +211,7 @@ function CustomerDetail({ customer, onClose }: { customer: Customer; onClose: ()
 }
 
 export function NewCustomerPage() {
-  const { admin, addCustomer, notify } = useOutletContext<AdminOutletContext>()
+  const { admin, notify } = useOutletContext<AdminOutletContext>()
   const navigate = useNavigate()
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -234,7 +232,6 @@ export function NewCustomerPage() {
     setSubmitting(true)
     try {
       const createdCustomer = mapApiCustomer(await createCustomer(admin.token, customerRequest))
-      addCustomer(createdCustomer)
       notify(`Customer ${createdCustomer.id} created successfully.`)
       navigate('/customers')
     } catch (requestError) {

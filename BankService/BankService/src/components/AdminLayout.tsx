@@ -2,24 +2,14 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Brand from './Brand'
 import Icon from './Icon'
-import type { Admin, Customer, SavingsAccount } from '../types/banking'
+import type { Admin } from '../types/banking'
 
 export default function AdminLayout({
   admin,
-  customers,
-  createdCustomers,
-  savings,
   onSignOut,
-  onCreateCustomer,
-  onCreateSavings,
 }: {
   admin: Admin
-  customers: Customer[]
-  createdCustomers: Customer[]
-  savings: SavingsAccount[]
   onSignOut: () => void
-  onCreateCustomer: (customer: Customer) => void
-  onCreateSavings: (account: SavingsAccount) => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -43,7 +33,7 @@ export default function AdminLayout({
         <div className="sidebar-caption">ADMINISTRATION</div>
         <nav className="admin-nav" aria-label="Admin navigation">
           <AdminNavLink to="/" icon="grid" label="Overview" onClick={() => setMenuOpen(false)} />
-          <AdminNavLink to="/customers" icon="users" label="Customers" count={customers.length} onClick={() => setMenuOpen(false)} />
+          <AdminNavLink to="/customers" icon="users" label="Customers" onClick={() => setMenuOpen(false)} />
           <AdminNavLink to="/savings" icon="wallet" label="Savings accounts" onClick={() => setMenuOpen(false)} />
         </nav>
         <div className="sidebar-bottom">
@@ -71,12 +61,7 @@ export default function AdminLayout({
           {notice && <div className="toast-notice" role="status"><span>✓</span>{notice}<button type="button" aria-label="Dismiss" onClick={() => setNotice('')}>×</button></div>}
           <Outlet context={{
             admin,
-            customers,
-            createdCustomers,
-            savings,
             notify: setNotice,
-            addCustomer: onCreateCustomer,
-            addSavings: onCreateSavings,
           }} />
         </main>
       </div>

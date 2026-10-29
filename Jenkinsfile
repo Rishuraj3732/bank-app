@@ -43,6 +43,13 @@ if errorlevel 1 exit /b 1
             }
         }
 
+        stage('Test customer and savings directories') {
+            steps {
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "CustomerService\\CustomerService\\pom.xml" -Dtest=CustomerServiceImplTest,CustomerControllerTest test'
+                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "AccountService\\AccountService\\pom.xml" -Dtest=SavingServiceImplTest,SavingsControllerTest test'
+            }
+        }
+
         stage('Package Java services') {
             steps {
                 bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "DiscoveryService\\DiscoveryService\\pom.xml" -DskipTests package'
@@ -60,7 +67,7 @@ if errorlevel 1 exit /b 1
                 bat 'docker build -t customer-service:latest .\\CustomerService\\CustomerService'
                 bat 'docker build -t identity-service:latest ".\\identity-service (2) (1)\\identity-service\\identity-service"'
                 bat 'docker build -t swiggy-gateway:latest ".\\swiggy-gateway (2)\\swiggy-gateway\\swiggy-gateway"'
-                bat 'docker build -t bank-frontend:latest --build-arg VITE_AUTH_API_URL=http://localhost:30765 --build-arg VITE_BANK_API_URL=http://localhost:30765 .\\BankService\\BankService'
+                bat 'docker build -t bank-frontend:latest --build-arg VITE_AUTH_API_URL=http://localhost:8765 --build-arg VITE_BANK_API_URL=http://localhost:8765 .\\BankService\\BankService'
             }
         }
 

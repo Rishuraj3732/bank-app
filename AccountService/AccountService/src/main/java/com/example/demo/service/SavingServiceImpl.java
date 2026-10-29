@@ -4,6 +4,8 @@ package com.example.demo.service;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 import com.example.demo.dto.SavingsRequest;
 import com.example.demo.entity.Savings;
 import com.example.demo.exception.AccountNumberNotFoundException;
@@ -41,6 +43,12 @@ public class SavingServiceImpl implements SavingsService {
                     + customerId
                 )
             );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Savings> getSavingsAccounts() {
+        return savingsRepository.findAllByOrderByAccountnoDesc();
     }
 
     @Override

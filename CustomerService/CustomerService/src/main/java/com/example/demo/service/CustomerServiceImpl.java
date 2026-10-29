@@ -5,6 +5,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.List;
+
 import com.example.demo.config.FeignProxy;
 import com.example.demo.dto.CustomerRequest;
 import com.example.demo.entity.Customer;
@@ -67,6 +69,12 @@ public class CustomerServiceImpl implements CustomerService {
                     "Customer not found with ID: " + customerId
                 )
             );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Customer> getCustomers() {
+        return customerRepository.findAllByOrderByCustomerIdDesc();
     }
 
     @Override

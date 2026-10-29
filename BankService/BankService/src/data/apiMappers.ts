@@ -48,6 +48,13 @@ export function mapApiCustomer(value: unknown): Customer {
   }
 }
 
+export function mapApiCustomers(value: unknown): Customer[] {
+  if (!Array.isArray(value)) {
+    throw new Error('The customer service returned an unexpected customer list.')
+  }
+  return value.map(mapApiCustomer)
+}
+
 export function mapApiSavings(
   value: unknown,
   fallbackCustomer?: { id: number; name: string },
@@ -59,6 +66,7 @@ export function mapApiSavings(
   if (id === undefined || customerId === undefined || balance === undefined) {
     throw new Error('Savings response is missing its account ID, customer ID, or balance.')
   }
+
   return {
     id,
     customerId,
@@ -69,4 +77,20 @@ export function mapApiSavings(
     openingDate: textField(record, 'openingDate'),
     status: 'Active',
   }
+}
+
+export function mapApiSavingsAccounts(value: unknown, customers: Customer[] = []): SavingsAccount[] {
+  if (!Array.isArray(value)) {
+    throw new Error('The savings service returned an unexpected account list.')
+  }
+  const customersById = new Map(customers.map((customer) => [customer.id, customer.name]))
+  return value.map((account) => {
+    const record = asRecord(account)
+    const customerId = numberField(record, 'customerId')
+    const customerName = customerId === undefined ? undefined : customersById.get(customerId)
+    const fallbackCustomer = customerId !== undefined && customerName
+      ? { id: customerId, name: customerName }
+      : undefined
+    return mapApiSavings(account, fallbackCustomer)
+  })
 }

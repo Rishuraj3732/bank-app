@@ -1,18 +1,14 @@
 import { useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AdminLayout from './components/AdminLayout'
-import { initialCustomers, initialSavings } from './data/mockData'
 import AuthPage from './pages/AuthPage'
 import CustomersPage, { NewCustomerPage } from './pages/CustomersPage'
 import OverviewPage from './pages/OverviewPage'
 import SavingsPage, { NewSavingsPage } from './pages/SavingsPage'
-import type { Admin, Customer, SavingsAccount } from './types/banking'
+import type { Admin } from './types/banking'
 
 function App() {
   const [admin, setAdmin] = useState<Admin | null>(null)
-  const [customers, setCustomers] = useState(initialCustomers)
-  const [createdCustomers, setCreatedCustomers] = useState<Customer[]>([])
-  const [savings, setSavings] = useState(initialSavings)
 
   return (
     <Routes>
@@ -30,15 +26,7 @@ function App() {
           admin ? (
             <AdminLayout
               admin={admin}
-              customers={customers}
-              createdCustomers={createdCustomers}
-              savings={savings}
               onSignOut={() => setAdmin(null)}
-              onCreateCustomer={(customer) => {
-                setCustomers((current) => [customer, ...current])
-                setCreatedCustomers((current) => [customer, ...current.filter((item) => item.id !== customer.id)])
-              }}
-              onCreateSavings={(account) => setSavings((current) => [account, ...current])}
             />
           ) : (
             <Navigate to="/login" replace />
@@ -58,4 +46,4 @@ function App() {
 
 export default App
 
-export type { Admin, Customer, SavingsAccount }
+export type { Admin }

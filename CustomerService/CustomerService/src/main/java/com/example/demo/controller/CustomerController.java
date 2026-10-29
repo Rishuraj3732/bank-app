@@ -4,6 +4,8 @@ package com.example.demo.controller;
 
 import jakarta.validation.Valid;
 
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +27,11 @@ public class CustomerController {
 
     // GET /api/v1/customers
     @GetMapping
+    public ResponseEntity<List<Customer>> getCustomers() {
+        return ResponseEntity.ok(customerService.getCustomers());
+    }
+
+    @GetMapping("/profile")
     public ResponseEntity<Customer> getProfile() {
         return ResponseEntity.ok(customerService.getProfile());
     }

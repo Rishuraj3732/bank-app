@@ -4,6 +4,8 @@ package com.example.demo.controller;
 
 import jakarta.validation.Valid;
 
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +35,11 @@ public class SavingsController {
 
     // GET /api/v1/savings
     @GetMapping("/savings")
+    public ResponseEntity<List<Savings>> getSavingsAccounts() {
+        return ResponseEntity.ok(savingsService.getSavingsAccounts());
+    }
+
+    @GetMapping("/savings/profile")
     public ResponseEntity<Savings> getProfile() {
         return ResponseEntity.ok(savingsService.getProfile());
     }

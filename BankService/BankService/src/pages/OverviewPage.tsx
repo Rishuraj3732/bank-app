@@ -1,19 +1,31 @@
 import { useEffect, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { CustomerTable } from '../components/BankingData'
+import { CustomerTable, EmptyState } from '../components/BankingData'
+import { mapApiCustomers, mapApiSavingsAccounts } from '../data/apiMappers'
 import { currency } from '../data/formatting'
 import Icon from '../components/Icon'
-import { getSavingsPortFromCustomerService, getSavingsServicePort } from '../services/bankingService'
+import {
+  getCustomers,
+  getSavingsAccounts,
+  getSavingsPortFromCustomerService,
+  getSavingsServicePort,
+} from '../services/bankingService'
 import type { AdminOutletContext } from '../types/banking'
 
 export default function OverviewPage() {
-  const { admin, customers, savings } = useOutletContext<AdminOutletContext>()
+  const { admin } = useOutletContext<AdminOutletContext>()
+  const [customers, setCustomers] = useState<ReturnType<typeof mapApiCustomers>>([])
+  const [savings, setSavings] = useState<ReturnType<typeof mapApiSavingsAccounts>>([])
+  const [dataLoading, setDataLoading] = useState(true)
+  const [customerError, setCustomerError] = useState('')
+  const [savingsError, setSavingsError] = useState('')
   const [portStatus, setPortStatus] = useState({
     customerApi: 'Checking…',
     savingsService: 'Checking…',
   })
   const totalDeposits = savings.reduce((sum, account) => sum + account.balance, 0)
-  const activeAccounts = savings.filter((account) => account.status === 'Active').length
+  const chartAccounts = savings.slice(0, 12)
+  const highestBalance = Math.max(0, ...chartAccounts.map((account) => account.balance))
   const respondingServices = Object.values(portStatus).filter(
     (status) => !status.includes('unavailable') && !status.includes('Checking'),
   ).length
@@ -27,6 +39,34 @@ export default function OverviewPage() {
 
   useEffect(() => {
     let active = true
+    Promise.allSettled([getCustomers(admin.token), getSavingsAccounts(admin.token)])
+      .then(([customerResult, savingsResult]) => {
+        if (!active) return
+        let loadedCustomers: ReturnType<typeof mapApiCustomers> = []
+        if (customerResult.status === 'fulfilled') {
+          try {
+            loadedCustomers = mapApiCustomers(customerResult.value)
+            setCustomers(loadedCustomers)
+          } catch (error) {
+            setCustomerError(error instanceof Error ? error.message : 'Unable to load customer records.')
+          }
+        } else {
+          setCustomerError(customerResult.reason instanceof Error ? customerResult.reason.message : 'Unable to load customer records.')
+        }
+
+        if (savingsResult.status === 'fulfilled') {
+          try {
+            setSavings(mapApiSavingsAccounts(savingsResult.value, loadedCustomers))
+          } catch (error) {
+            setSavingsError(error instanceof Error ? error.message : 'Unable to load savings accounts.')
+          }
+        } else {
+          setSavingsError(savingsResult.reason instanceof Error ? savingsResult.reason.message : 'Unable to load savings accounts.')
+        }
+      })
+      .finally(() => {
+        if (active) setDataLoading(false)
+      })
     Promise.allSettled([
       getSavingsPortFromCustomerService(admin.token),
       getSavingsServicePort(admin.token),
@@ -47,18 +87,22 @@ export default function OverviewPage() {
         <div className="heading-actions"><Link className="admin-secondary" to="/customers/new"><Icon name="plus" /> Add customer</Link><Link className="admin-primary" to="/savings/new"><Icon name="plus" /> New savings account</Link></div>
       </div>
 
-      <div className="demo-data-label overview-demo-note">LOCAL DASHBOARD TOTALS AND DIRECTORY · CUSTOMER AND SAVINGS SERVICES DO NOT EXPOSE LIST-ENDPOINTS</div>
+      <div className="demo-data-label overview-demo-note">LIVE TOTALS AND CUSTOMER DIRECTORY FROM BANKING SERVICES</div>
+      {customerError && <div className="api-inline-error" role="alert">{customerError}</div>}
+      {savingsError && <div className="api-inline-error" role="alert">{savingsError}</div>}
       <section className="stat-grid" aria-label="Banking service metrics">
-        <MetricCard icon="users" label="Local customer records" value={customers.length.toLocaleString()} delta="In this session" caption="not a service total" tint="blue" />
-        <MetricCard icon="wallet" label="Savings records" value={savings.length.toLocaleString()} delta={`${activeAccounts} active`} caption="local directory data" tint="green" />
-        <MetricCard icon="coins" label="Recorded deposits" value={currency(totalDeposits)} delta="Local data" caption="not a service total" tint="violet" />
+        <MetricCard icon="users" label="Customers" value={dataLoading ? '…' : customerError ? '—' : customers.length.toLocaleString()} delta="Customer Service" caption="database records" tint="blue" />
+        <MetricCard icon="wallet" label="Savings accounts" value={dataLoading ? '…' : savingsError ? '—' : savings.length.toLocaleString()} delta="Savings Service" caption="database records" tint="green" />
+        <MetricCard icon="coins" label="Recorded deposits" value={dataLoading ? '…' : savingsError ? '—' : currency(totalDeposits)} delta="Savings Service" caption="database balance total" tint="violet" />
         <MetricCard icon="pulse" label="Service status" value={healthLabel} delta={`${respondingServices} of 2 checks responding`} caption="Live API health checks" tint="amber" />
       </section>
 
       <div className="overview-grid">
         <section className="admin-card customer-table-card">
-          <div className="card-title-row"><div><h2>Recent customers</h2><p>Customer records in this session’s local directory</p></div><Link className="text-link" to="/customers">View all <span>→</span></Link></div>
-          <CustomerTable customers={customers.slice(0, 4)} compact />
+          <div className="card-title-row"><div><h2>Recent customers</h2><p>Customer records from the database</p></div><Link className="text-link" to="/customers">View all <span>→</span></Link></div>
+          {customers.length > 0
+            ? <CustomerTable customers={customers.slice(0, 4)} compact />
+            : <EmptyState text={dataLoading ? 'Loading customer records…' : customerError ? 'Customer records are unavailable.' : 'No customers have been created yet.'} />}
           <Link className="table-bottom-link" to="/customers">Open customer directory <span>→</span></Link>
         </section>
         <section className="admin-card service-card">
@@ -73,9 +117,17 @@ export default function OverviewPage() {
       <section className="admin-card savings-summary-card">
         <div className="card-title-row"><div><h2>Savings portfolio</h2><p>Account balances across your customer base</p></div><Link className="text-link" to="/savings">Manage accounts <span>→</span></Link></div>
         <div className="portfolio-row">
-          <div className="portfolio-balance"><span>Total savings balance</span><strong>{currency(totalDeposits)}</strong><small>Across {savings.length} accounts</small></div>
-          <div className="portfolio-chart" aria-label="Illustrative portfolio balance chart">{[34, 48, 38, 63, 51, 73, 56, 82, 68, 96, 78, 100].map((height, index) => <span key={index} style={{ height: `${height}%` }} />)}</div>
-          <div className="portfolio-legend"><span><i className="legend-dot green-dot" />Active accounts <strong>{activeAccounts}</strong></span><span><i className="legend-dot amber-dot" />Pending review <strong>{savings.length - activeAccounts}</strong></span></div>
+          <div className="portfolio-balance"><span>Total savings balance</span><strong>{dataLoading ? '…' : savingsError ? '—' : currency(totalDeposits)}</strong><small>Across {dataLoading ? '…' : savingsError ? '—' : savings.length} accounts</small></div>
+          <div className="portfolio-chart" aria-label={`Balances for up to ${chartAccounts.length} savings accounts`}>
+            {!savingsError && chartAccounts.map((account) => (
+              <span
+                key={account.id}
+                title={`Account ${account.accountNumber}: ${currency(account.balance)}`}
+                style={{ height: `${highestBalance > 0 ? Math.max(5, account.balance / highestBalance * 100) : 5}%` }}
+              />
+            ))}
+          </div>
+          <div className="portfolio-legend"><span><i className="legend-dot green-dot" />Accounts shown <strong>{savingsError ? '—' : chartAccounts.length}</strong></span></div>
         </div>
       </section>
     </div>
