@@ -4,6 +4,8 @@ pipeline {
     environment {
         DOCKERHUB_NAMESPACE = 'rishuraj1'
         AKS_NAMESPACE = 'bank'
+        AKS_CLUSTER = 'therishuraj'
+        AKS_RESOURCE_GROUP = 'rgroup'
         AKS_CONTEXT = 'therishuraj'
     }
 
@@ -26,7 +28,7 @@ pipeline {
             steps {
                 sh '''
 set -eu
-for tool in java mvn docker kubectl python3; do
+for tool in java mvn docker az kubectl python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "ERROR: Required tool '$tool' is not available on the Jenkins agent." >&2
         exit 1
@@ -35,6 +37,7 @@ done
 java -version
 mvn -version
 docker --version
+az version --output none
 kubectl version --client
 docker info
 '''
@@ -145,6 +148,18 @@ printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" -
                 sh '''
 set -eu
 set +x
+if ! az account show --output none; then
+    echo "ERROR: Azure CLI is not authenticated for the Jenkins build user. Configure its Azure identity and active subscription before deploying." >&2
+    exit 1
+fi
+
+echo "Refreshing AKS credentials for $AKS_CLUSTER in resource group $AKS_RESOURCE_GROUP."
+az aks get-credentials \
+    --resource-group "$AKS_RESOURCE_GROUP" \
+    --name "$AKS_CLUSTER" \
+    --overwrite-existing \
+    --only-show-errors
+
 contexts=$(kubectl config get-contexts -o name)
 if ! printf '%s\n' "$contexts" | grep -Fxq "$AKS_CONTEXT"; then
     echo "ERROR: Kubernetes context '$AKS_CONTEXT' is missing from the Jenkins agent kubeconfig. Configure Jenkins access to AKS before deploying." >&2
