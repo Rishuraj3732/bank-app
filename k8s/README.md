@@ -29,37 +29,30 @@ uses Eureka to find the application services.
    docker build -t "rishuraj1/customer-service:$tag" .\CustomerService\CustomerService
    docker build -t "rishuraj1/identity-service:$tag" '.\identity-service (2) (1)\identity-service\identity-service'
    docker build -t "rishuraj1/swiggy-gateway:$tag" '.\swiggy-gateway (2)\swiggy-gateway\swiggy-gateway'
-   docker build -t "rishuraj1/bank-frontend:$tag" --build-arg VITE_AUTH_API_URL=http://localhost:8765 --build-arg VITE_BANK_API_URL=http://localhost:8765 .\BankService\BankService
+   docker build -t "rishuraj1/bank-frontend:$tag" --build-arg VITE_AUTH_API_URL=/ --build-arg VITE_BANK_API_URL=/ .\BankService\BankService
    docker push "rishuraj1/discoveryservice:$tag"
    docker push "rishuraj1/accountservice:$tag"
    docker push "rishuraj1/customer-service:$tag"
    docker push "rishuraj1/identity-service:$tag"
    docker push "rishuraj1/swiggy-gateway:$tag"
    docker push "rishuraj1/bank-frontend:$tag"
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\render-k8s.ps1 -ImageNamespace rishuraj1 -ImageTag $tag -OutputDirectory k8s-deploy-manual
+   bash ./scripts/render-k8s.sh rishuraj1 "$tag" k8s-deploy-manual
    ```
 
    The command above pushes each generated versioned image to Docker Hub. Remove
    `k8s-deploy-manual` after applying the manifests.
-3. Keep a root `.env` with `MYSQL_ROOT_PASSWORD` for this tutorial. Jenkins
-   reads that value and creates the `bank-database` Secret on first deployment;
-   it leaves an existing Secret unchanged so it does not desynchronize
-   credentials from the persistent MySQL volume. This example password is
-   public and for tutorial use only.
+3. Keep a root `.env` with `MYSQL_ROOT_PASSWORD` for local Compose and manual
+   tutorial use. The Jenkins AKS pipeline does not read `.env` or create the
+   `bank-database` Secret; provision that Secret securely before deployment.
+   The example password below is public and for tutorial use only.
 
    ```dotenv
    MYSQL_ROOT_PASSWORD=tutorial-only-password
    ```
 
-4. To deploy through Jenkins, commit the root `Jenkinsfile`, `scripts\render-k8s.ps1`,
-   manifests, and `.env`, then create a Jenkins **Pipeline** job using
-   **Pipeline script from SCM** and the public GitHub repository. The pipeline
-   builds and publishes versioned images,
-   provisions the Secret if it is missing, and deploys in dependency order.
-   Add a Jenkins **Username with password** credential with ID
-   `dockerhub-credentials`; use the Docker Hub username and an access token as
-   the password. The Jenkins Windows account must have Docker Desktop, Maven,
-   Java, and the active Kubernetes context available on its PATH/profile.
+4. For Jenkins-based AKS deployment, follow [DEPLOY_AKS.md](../DEPLOY_AKS.md).
+   The Linux pipeline expects the `bank-database` Secret to be provisioned
+   securely before deployment; it does not read or print `.env` values.
 
    For a manual deployment instead, create the namespace and Secret once:
 
@@ -91,16 +84,16 @@ uses Eureka to find the application services.
 
    The frontend and Gateway Services use NodePorts `30080` and `30765`.
    Docker Desktop's local Kubernetes kind cluster may not expose NodePorts
-   directly to Windows, so forward the Services using the browser URLs:
+   directly to Windows, so forward the frontend Service:
 
    ```powershell
    kubectl port-forward -n bank service/bankfrontend 30080:80
-   kubectl port-forward -n bank service/swiggygateway 8765:8765
    ```
 
-   Keep both commands running and open `http://localhost:30080`. The frontend
-   calls the Gateway at `http://localhost:8765`; Gateway CORS allows the
-   frontend origin on port `30080`.
+   Keep the frontend command running and open `http://localhost:30080`. The
+   frontend's Nginx container proxies `/api/` and `/auth/` requests to the
+   in-cluster Gateway Service, so a separate Gateway port-forward is not
+   required.
 
 The customer and savings directories use these authenticated collection
 endpoints:

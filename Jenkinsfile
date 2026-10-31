@@ -2,135 +2,188 @@ pipeline {
     agent any
 
     environment {
-        KUBECONFIG = 'C:\\Users\\HP\\.kube\\config'
-        MAVEN_HOME = 'C:\\Program Files\\apache-maven-3.9.16'
         DOCKERHUB_NAMESPACE = 'rishuraj1'
+        AKS_NAMESPACE = 'bank'
+        AKS_CONTEXT = 'therishuraj'
     }
 
     options {
         timestamps()
     }
 
+    triggers {
+        pollSCM('H/2 * * * *')
+    }
+
     stages {
-        stage('Check tools and cluster') {
+        stage('Checkout') {
             steps {
-                bat 'java -version'
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -version'
-                bat 'docker info'
-                bat '''
-@echo off
-kubectl config get-contexts
-kubectl config use-context docker-desktop
-if errorlevel 1 (
-    echo ERROR: Could not select docker-desktop from %KUBECONFIG%.
-    exit /b 1
-)
-kubectl get --raw=/version
-if errorlevel 1 exit /b 1
-kubectl get nodes
-if errorlevel 1 exit /b 1
-'''
-                bat 'if not exist .env (echo Required root .env file is missing.& exit /b 1)'
-                bat 'findstr /R /C:"^[ ]*MYSQL_ROOT_PASSWORD[ ]*=" .env >nul || (echo MYSQL_ROOT_PASSWORD is missing from root .env.& exit /b 1)'
+                checkout scm
             }
         }
 
-        stage('Create namespace and database Secret') {
+        stage('Verify build tools') {
             steps {
-                bat 'kubectl apply -f k8s\\01-namespace.yaml'
-                bat '''
-@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$secret = kubectl get secret bank-database -n bank -o name 2>$null; if ($LASTEXITCODE -ne 0) { $entry = Get-Content .env | Where-Object { $_.Trim().StartsWith('MYSQL_ROOT_PASSWORD=') } | Select-Object -First 1; if (-not $entry) { Write-Error 'MYSQL_ROOT_PASSWORD is missing from root .env'; exit 1 }; $entry = $entry.Trim(); $password = $entry.Substring($entry.IndexOf('=') + 1).Trim().Trim([char]34).Trim([char]39); if (-not $password) { Write-Error 'MYSQL_ROOT_PASSWORD is empty'; exit 1 }; kubectl create secret generic bank-database -n bank ('--from-literal=mysql-root-password=' + $password) --dry-run=client -o yaml | kubectl apply -f -; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } else { Write-Output 'Using the existing bank-database Secret to preserve the MySQL PVC credentials.' }"
+                sh '''
+set -eu
+for tool in java mvn docker kubectl; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: Required tool '$tool' is not available on the Jenkins agent." >&2
+        exit 1
+    fi
+done
+java -version
+mvn -version
+docker --version
+kubectl version --client
+docker info
 '''
             }
         }
 
-        stage('Test customer and savings directories') {
+        stage('Test Customer and Account services') {
             steps {
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "CustomerService\\CustomerService\\pom.xml" -Dtest=CustomerServiceImplTest,CustomerControllerTest test'
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "AccountService\\AccountService\\pom.xml" -Dtest=SavingServiceImplTest,SavingsControllerTest test'
+                sh 'mvn -B -f "CustomerService/CustomerService/pom.xml" -Dtest=CustomerServiceImplTest,CustomerControllerTest test'
+                sh 'mvn -B -f "AccountService/AccountService/pom.xml" -Dtest=SavingServiceImplTest,SavingsControllerTest test'
             }
         }
 
         stage('Package Java services') {
             steps {
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "DiscoveryService\\DiscoveryService\\pom.xml" -DskipTests package'
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "AccountService\\AccountService\\pom.xml" -DskipTests package'
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "CustomerService\\CustomerService\\pom.xml" -DskipTests package'
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "identity-service (2) (1)\\identity-service\\identity-service\\pom.xml" -DskipTests package'
-                bat '"%MAVEN_HOME%\\bin\\mvn.cmd" -f "swiggy-gateway (2)\\swiggy-gateway\\swiggy-gateway\\pom.xml" -DskipTests package'
+                sh 'mvn -B -f "DiscoveryService/DiscoveryService/pom.xml" -DskipTests package'
+                sh 'mvn -B -f "AccountService/AccountService/pom.xml" -DskipTests package'
+                sh 'mvn -B -f "CustomerService/CustomerService/pom.xml" -DskipTests package'
+                sh 'mvn -B -f "identity-service (2) (1)/identity-service/identity-service/pom.xml" -DskipTests package'
+                sh 'mvn -B -f "swiggy-gateway (2)/swiggy-gateway/swiggy-gateway/pom.xml" -DskipTests package'
             }
         }
 
-        stage('Build local images') {
+        stage('Build six images') {
             steps {
-                bat 'docker build -t discoveryservice:latest .\\DiscoveryService\\DiscoveryService'
-                bat 'docker build -t accountservice:latest .\\AccountService\\AccountService'
-                bat 'docker build -t customer-service:latest .\\CustomerService\\CustomerService'
-                bat 'docker build -t identity-service:latest ".\\identity-service (2) (1)\\identity-service\\identity-service"'
-                bat 'docker build -t swiggy-gateway:latest ".\\swiggy-gateway (2)\\swiggy-gateway\\swiggy-gateway"'
-                bat 'docker build -t bank-frontend:latest --build-arg VITE_AUTH_API_URL=http://localhost:8765 --build-arg VITE_BANK_API_URL=http://localhost:8765 .\\BankService\\BankService'
+                sh '''
+set -eu
+tag="build-${BUILD_NUMBER}"
+docker build -t "$DOCKERHUB_NAMESPACE/discoveryservice:$tag" ./DiscoveryService/DiscoveryService
+docker build -t "$DOCKERHUB_NAMESPACE/accountservice:$tag" ./AccountService/AccountService
+docker build -t "$DOCKERHUB_NAMESPACE/customer-service:$tag" ./CustomerService/CustomerService
+docker build -t "$DOCKERHUB_NAMESPACE/identity-service:$tag" "./identity-service (2) (1)/identity-service/identity-service"
+docker build -t "$DOCKERHUB_NAMESPACE/swiggy-gateway:$tag" "./swiggy-gateway (2)/swiggy-gateway/swiggy-gateway"
+docker build \
+    --build-arg VITE_AUTH_API_URL=/ \
+    --build-arg VITE_BANK_API_URL=/ \
+    -t "$DOCKERHUB_NAMESPACE/bank-frontend:$tag" \
+    ./BankService/BankService
+'''
             }
         }
 
         stage('Publish versioned images') {
+            when {
+                expression {
+                    env.BRANCH_NAME == 'main' || env.GIT_BRANCH in ['main', 'origin/main', '*/main', 'refs/remotes/origin/main']
+                }
+            }
             steps {
                 script {
+                    def images = [
+                        'discoveryservice',
+                        'accountservice',
+                        'customer-service',
+                        'identity-service',
+                        'swiggy-gateway',
+                        'bank-frontend'
+                    ]
                     withCredentials([usernamePassword(
                         credentialsId: 'dockerhub-credentials',
                         usernameVariable: 'DOCKERHUB_USERNAME',
                         passwordVariable: 'DOCKERHUB_TOKEN'
                     )]) {
                         try {
-                            bat '''
-@echo off
-@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$env:DOCKERHUB_TOKEN | docker login --username $env:DOCKERHUB_USERNAME --password-stdin"
-if errorlevel 1 exit /b 1
+                            sh '''
+set +x
+printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
 '''
-                            def images = [
-                                [local: 'discoveryservice', remote: 'discoveryservice'],
-                                [local: 'accountservice', remote: 'accountservice'],
-                                [local: 'customer-service', remote: 'customer-service'],
-                                [local: 'identity-service', remote: 'identity-service'],
-                                [local: 'swiggy-gateway', remote: 'swiggy-gateway'],
-                                [local: 'bank-frontend', remote: 'bank-frontend']
-                            ]
                             images.each { image ->
-                                bat "docker tag ${image.local}:latest %DOCKERHUB_NAMESPACE%/${image.remote}:build-%BUILD_NUMBER%"
-                                bat "docker push %DOCKERHUB_NAMESPACE%/${image.remote}:build-%BUILD_NUMBER%"
+                                sh "docker push ${env.DOCKERHUB_NAMESPACE}/${image}:build-${env.BUILD_NUMBER}"
                             }
                         } finally {
-                            bat 'docker logout'
+                            sh 'docker logout'
                         }
                     }
                 }
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Deploy to AKS') {
+            when {
+                expression {
+                    env.BRANCH_NAME == 'main' || env.GIT_BRANCH in ['main', 'origin/main', '*/main', 'refs/remotes/origin/main']
+                }
+            }
             steps {
-                bat 'kubectl apply -f k8s\\01-namespace.yaml'
-                bat 'kubectl apply -f k8s\\03-mysql.yaml'
-                bat 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\render-k8s.ps1 -ImageNamespace "%DOCKERHUB_NAMESPACE%" -ImageTag build-%BUILD_NUMBER% -OutputDirectory "k8s-deploy-%BUILD_NUMBER%"'
-                bat 'kubectl apply -f "k8s-deploy-%BUILD_NUMBER%"'
-                bat 'kubectl rollout status deployment/discoveryservice -n bank --timeout=300s'
-                bat 'kubectl rollout status deployment/accountservice -n bank --timeout=300s'
-                bat 'kubectl rollout status deployment/customerservice -n bank --timeout=300s'
-                bat 'kubectl rollout status deployment/identityservice -n bank --timeout=300s'
-                bat 'kubectl rollout status deployment/swiggygateway -n bank --timeout=300s'
-                bat 'kubectl rollout status deployment/bankfrontend -n bank --timeout=300s'
-                bat 'kubectl rollout status statefulset/mysql -n bank --timeout=300s'
+                sh '''
+set -eu
+contexts=$(kubectl config get-contexts -o name)
+if ! printf '%s\n' "$contexts" | grep -Fxq "$AKS_CONTEXT"; then
+    echo "ERROR: Kubernetes context '$AKS_CONTEXT' is missing from the Jenkins agent kubeconfig. Configure Jenkins access to AKS before deploying." >&2
+    exit 1
+fi
+kubectl config use-context "$AKS_CONTEXT"
+if ! kubectl get --raw=/version >/dev/null; then
+    echo "ERROR: Jenkins cannot reach AKS using context '$AKS_CONTEXT'. Check the Jenkins kubeconfig credentials and cluster network access." >&2
+    exit 1
+fi
+
+kubectl apply -f k8s/01-namespace.yaml
+
+if ! kubectl get secret bank-database -n "$AKS_NAMESPACE" >/dev/null; then
+    echo "ERROR: Could not verify Secret 'bank-database' in namespace '$AKS_NAMESPACE'. Check Jenkins permissions and securely provision the Secret if it is missing." >&2
+    exit 1
+fi
+
+kubectl apply -f k8s/03-mysql.yaml
+kubectl rollout status statefulset/mysql -n "$AKS_NAMESPACE" --timeout=300s
+
+output_directory="k8s-deploy-${BUILD_NUMBER}"
+bash scripts/render-k8s.sh "$DOCKERHUB_NAMESPACE" "build-${BUILD_NUMBER}" "$output_directory"
+
+kubectl apply -f "$output_directory/04-discovery.yaml"
+kubectl rollout status deployment/discoveryservice -n "$AKS_NAMESPACE" --timeout=300s
+
+kubectl apply -f "$output_directory/05-services.yaml"
+kubectl rollout status deployment/accountservice -n "$AKS_NAMESPACE" --timeout=300s
+kubectl rollout status deployment/customerservice -n "$AKS_NAMESPACE" --timeout=300s
+kubectl rollout status deployment/identityservice -n "$AKS_NAMESPACE" --timeout=300s
+kubectl rollout status deployment/swiggygateway -n "$AKS_NAMESPACE" --timeout=300s
+
+kubectl apply -f "$output_directory/06-frontend.yaml"
+kubectl rollout status deployment/bankfrontend -n "$AKS_NAMESPACE" --timeout=300s
+kubectl wait --for=condition=Ready pod -l app=bankfrontend -n "$AKS_NAMESPACE" --timeout=300s
+kubectl get deployments,statefulsets,pods -n "$AKS_NAMESPACE"
+'''
             }
         }
     }
 
     post {
         always {
-            bat '''
-@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$path = Join-Path $env:WORKSPACE ('k8s-deploy-' + $env:BUILD_NUMBER); if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }"
+            junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
+            sh '''
+set -eu
+case "$BUILD_NUMBER" in
+    ''|*[!0-9]*)
+        echo "ERROR: Refusing to clean an invalid generated-directory name." >&2
+        exit 1
+        ;;
+esac
+output_directory="k8s-deploy-${BUILD_NUMBER}"
+if [ -d "$output_directory" ]; then
+    rm -rf -- "$output_directory"
+fi
 '''
         }
         success {
-            echo 'Build and Kubernetes deployment completed.'
+            echo 'Build and AKS deployment completed.'
         }
         failure {
             echo 'Pipeline failed. Check the stage logs before retrying.'
