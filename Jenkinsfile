@@ -9,10 +9,6 @@ pipeline {
         AKS_CONTEXT = 'therishuraj'
     }
 
-    options {
-        timestamps()
-    }
-
     triggers {
         pollSCM('H/2 * * * *')
     }
