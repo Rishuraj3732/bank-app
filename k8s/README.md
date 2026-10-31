@@ -41,18 +41,20 @@ uses Eureka to find the application services.
 
    The command above pushes each generated versioned image to Docker Hub. Remove
    `k8s-deploy-manual` after applying the manifests.
-3. Keep a root `.env` with `MYSQL_ROOT_PASSWORD` for local Compose and manual
-   tutorial use. The Jenkins AKS pipeline does not read `.env` or create the
-   `bank-database` Secret; provision that Secret securely before deployment.
-   The example password below is public and for tutorial use only.
+3. Keep a root `.env` with `MYSQL_ROOT_PASSWORD` for local Compose and the
+   existing Jenkins learning setup. Jenkins creates the `bank-database` Secret
+   only if it is missing, and preserves any existing Secret to avoid
+   desynchronizing credentials from the MySQL PVC. The example password below
+   is public and for tutorial use only.
 
    ```dotenv
    MYSQL_ROOT_PASSWORD=tutorial-only-password
    ```
 
 4. For Jenkins-based AKS deployment, follow [DEPLOY_AKS.md](../DEPLOY_AKS.md).
-   The Linux pipeline expects the `bank-database` Secret to be provisioned
-   securely before deployment; it does not read or print `.env` values.
+   The Linux pipeline reads `.env` only when it needs to create the Secret and
+   does not print its value. Restrict access to `.env`; do not commit real
+   production credentials.
 
    For a manual deployment instead, create the namespace and Secret once:
 

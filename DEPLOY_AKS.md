@@ -7,9 +7,10 @@ public Jenkins webhook.
 
 ## One-time setup
 
-- Configure a Linux Jenkins agent with Java, Maven, Docker/build support, and
-  `kubectl`. Install the Jenkins Git, Pipeline, Credentials Binding, and JUnit
-  plugins. The pipeline builds sequentially to limit memory use.
+- Configure a Linux Jenkins agent with Java, Maven, Docker/build support,
+  `kubectl`, and Python 3. Install the Jenkins Git, Pipeline, Credentials
+  Binding, and JUnit plugins. The pipeline builds sequentially to limit memory
+  use.
 - Configure Jenkins credential ID `dockerhub-credentials` as **Username with
   password**, using a Docker Hub username and access token. Create the six
   public repositories listed below if they do not already exist.
@@ -30,10 +31,12 @@ public Jenkins webhook.
   tools or logging into Azure as another user does not grant Jenkins access.
   The identity must be allowed to apply the `bank` Namespace and manage the
   manifests within it, including reading the existing `bank-database` Secret.
-- Provision the `bank-database` Secret securely in namespace `bank` before the
-  first run, with key `mysql-root-password`. The pipeline never reads `.env`,
-  creates or changes this Secret, or prints its value. Preserve the existing
-  MySQL PVC and credentials.
+- Keep the root `.env` file and `MYSQL_ROOT_PASSWORD` entry required by the
+  existing learning setup. On deployment, the pipeline creates the
+  `bank-database` Secret with key `mysql-root-password` only when it is absent;
+  it preserves an existing Secret so it stays aligned with the MySQL PVC. The
+  pipeline does not print the password. Keep `.env` access restricted and do
+  not add a real production password to source control.
 - Create a Jenkins **Pipeline** job configured as **Pipeline script from SCM**:
   use this Git repository, branch `main`, and script path `Jenkinsfile`. The
   pipeline declares `H/2 * * * *` SCM polling. A push is detected on the next
@@ -41,9 +44,12 @@ public Jenkins webhook.
   instantaneous webhook.
 
 The `Publish versioned images` and `Deploy to AKS` stages run only for `main`.
-The existing Customer and Account JUnit suites run before packaging. Test,
-package, and image-build failures stop the pipeline before publish or
-deployment. Jenkins also publishes Maven Surefire JUnit reports.
+The full Maven `test` phase runs for all five Java projects before packaging.
+Test, package, image-build, image-push, or deployment failures stop subsequent
+stages. Jenkins also publishes available Maven Surefire JUnit reports.
+Account, Customer, and Identity context-load tests use test-scoped H2 so the
+unit-test phase does not depend on a running MySQL service; application runtime
+database configuration remains unchanged.
 
 ## Images and frontend API routing
 
@@ -76,9 +82,9 @@ kubectl get events -n bank --sort-by=.metadata.creationTimestamp
 kubectl rollout status deployment/accountservice -n bank --timeout=300s
 ```
 
-The pipeline waits for MySQL, each deployment rollout, and frontend pod
-readiness. A timeout, failed rollout, missing Secret, or unavailable AKS
-context fails the build.
+The pipeline waits for MySQL's StatefulSet, each application Deployment, and
+frontend pod readiness. A timeout, failed rollout, missing `.env` password, or
+unavailable AKS context fails the build.
 
 To undo a deployment, roll back the affected application deployments to their
 previous ReplicaSets, then verify their rollouts:

@@ -26,7 +26,7 @@ pipeline {
             steps {
                 sh '''
 set -eu
-for tool in java mvn docker kubectl; do
+for tool in java mvn docker kubectl python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "ERROR: Required tool '$tool' is not available on the Jenkins agent." >&2
         exit 1
@@ -41,20 +41,39 @@ docker info
             }
         }
 
-        stage('Test Customer and Account services') {
+        stage('Run all Maven test suites') {
             steps {
-                sh 'mvn -B -f "CustomerService/CustomerService/pom.xml" -Dtest=CustomerServiceImplTest,CustomerControllerTest test'
-                sh 'mvn -B -f "AccountService/AccountService/pom.xml" -Dtest=SavingServiceImplTest,SavingsControllerTest test'
+                script {
+                    def javaProjects = [
+                        'DiscoveryService/DiscoveryService/pom.xml',
+                        'AccountService/AccountService/pom.xml',
+                        'CustomerService/CustomerService/pom.xml',
+                        'identity-service (2) (1)/identity-service/identity-service/pom.xml',
+                        'swiggy-gateway (2)/swiggy-gateway/swiggy-gateway/pom.xml'
+                    ]
+                    javaProjects.each { project ->
+                        echo "Running full Maven test suite: ${project}"
+                        sh "mvn -B -f '${project}' test"
+                    }
+                }
             }
         }
 
         stage('Package Java services') {
             steps {
-                sh 'mvn -B -f "DiscoveryService/DiscoveryService/pom.xml" -DskipTests package'
-                sh 'mvn -B -f "AccountService/AccountService/pom.xml" -DskipTests package'
-                sh 'mvn -B -f "CustomerService/CustomerService/pom.xml" -DskipTests package'
-                sh 'mvn -B -f "identity-service (2) (1)/identity-service/identity-service/pom.xml" -DskipTests package'
-                sh 'mvn -B -f "swiggy-gateway (2)/swiggy-gateway/swiggy-gateway/pom.xml" -DskipTests package'
+                script {
+                    def javaProjects = [
+                        'DiscoveryService/DiscoveryService/pom.xml',
+                        'AccountService/AccountService/pom.xml',
+                        'CustomerService/CustomerService/pom.xml',
+                        'identity-service (2) (1)/identity-service/identity-service/pom.xml',
+                        'swiggy-gateway (2)/swiggy-gateway/swiggy-gateway/pom.xml'
+                    ]
+                    javaProjects.each { project ->
+                        echo "Packaging Java service: ${project}"
+                        sh "mvn -B -f '${project}' -DskipTests package"
+                    }
+                }
             }
         }
 
@@ -63,6 +82,7 @@ docker info
                 sh '''
 set -eu
 tag="build-${BUILD_NUMBER}"
+echo "Building all six Docker images with tag $tag"
 docker build -t "$DOCKERHUB_NAMESPACE/discoveryservice:$tag" ./DiscoveryService/DiscoveryService
 docker build -t "$DOCKERHUB_NAMESPACE/accountservice:$tag" ./AccountService/AccountService
 docker build -t "$DOCKERHUB_NAMESPACE/customer-service:$tag" ./CustomerService/CustomerService
@@ -99,6 +119,7 @@ docker build \
                         passwordVariable: 'DOCKERHUB_TOKEN'
                     )]) {
                         try {
+                            echo "Logging in to Docker Hub and publishing build-${env.BUILD_NUMBER} images"
                             sh '''
 set +x
 printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
@@ -123,6 +144,7 @@ printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" -
             steps {
                 sh '''
 set -eu
+set +x
 contexts=$(kubectl config get-contexts -o name)
 if ! printf '%s\n' "$contexts" | grep -Fxq "$AKS_CONTEXT"; then
     echo "ERROR: Kubernetes context '$AKS_CONTEXT' is missing from the Jenkins agent kubeconfig. Configure Jenkins access to AKS before deploying." >&2
@@ -136,26 +158,73 @@ fi
 
 kubectl apply -f k8s/01-namespace.yaml
 
-if ! kubectl get secret bank-database -n "$AKS_NAMESPACE" >/dev/null; then
-    echo "ERROR: Could not verify Secret 'bank-database' in namespace '$AKS_NAMESPACE'. Check Jenkins permissions and securely provision the Secret if it is missing." >&2
+if [ ! -f .env ]; then
+    echo "ERROR: Required root .env file is missing." >&2
+    exit 1
+fi
+if ! grep -Eq '^[[:space:]]*MYSQL_ROOT_PASSWORD[[:space:]]*=' .env; then
+    echo "ERROR: MYSQL_ROOT_PASSWORD is missing from root .env." >&2
     exit 1
 fi
 
+if kubectl get secret bank-database -n "$AKS_NAMESPACE" -o name >/dev/null 2>&1; then
+    echo "Using the existing bank-database Secret to preserve the MySQL PVC credentials."
+else
+    echo "Creating the bank-database Secret from root .env."
+    secret_manifest=$(mktemp)
+    trap 'rm -f -- "$secret_manifest"' EXIT
+    python3 - "$secret_manifest" <<'PY'
+import base64
+import json
+from pathlib import Path
+import sys
+
+password = None
+for line in Path(".env").read_text(encoding="utf-8").splitlines():
+    stripped = line.strip()
+    if stripped.partition("=")[0].strip() == "MYSQL_ROOT_PASSWORD":
+        password = stripped.split("=", 1)[1].strip()
+        if len(password) >= 2 and password[0] == password[-1] and password[0] in ("'", '"'):
+            password = password[1:-1]
+        break
+
+if not password:
+    raise SystemExit("ERROR: MYSQL_ROOT_PASSWORD is missing or empty in root .env.")
+
+secret = {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {"name": "bank-database", "namespace": "bank"},
+    "type": "Opaque",
+    "data": {"mysql-root-password": base64.b64encode(password.encode()).decode()},
+}
+Path(sys.argv[1]).write_text(json.dumps(secret), encoding="utf-8")
+PY
+    kubectl apply -f "$secret_manifest"
+    rm -f -- "$secret_manifest"
+    trap - EXIT
+fi
+
+echo "Applying MySQL and waiting for its StatefulSet rollout."
 kubectl apply -f k8s/03-mysql.yaml
 kubectl rollout status statefulset/mysql -n "$AKS_NAMESPACE" --timeout=300s
 
 output_directory="k8s-deploy-${BUILD_NUMBER}"
+echo "Rendering versioned Kubernetes manifests into $output_directory."
 bash scripts/render-k8s.sh "$DOCKERHUB_NAMESPACE" "build-${BUILD_NUMBER}" "$output_directory"
 
+echo "Applying discovery service and waiting for readiness."
 kubectl apply -f "$output_directory/04-discovery.yaml"
 kubectl rollout status deployment/discoveryservice -n "$AKS_NAMESPACE" --timeout=300s
 
+echo "Applying application services and waiting for rollouts."
 kubectl apply -f "$output_directory/05-services.yaml"
 kubectl rollout status deployment/accountservice -n "$AKS_NAMESPACE" --timeout=300s
 kubectl rollout status deployment/customerservice -n "$AKS_NAMESPACE" --timeout=300s
 kubectl rollout status deployment/identityservice -n "$AKS_NAMESPACE" --timeout=300s
 kubectl rollout status deployment/swiggygateway -n "$AKS_NAMESPACE" --timeout=300s
 
+echo "Applying frontend and waiting for deployment and pod readiness."
 kubectl apply -f "$output_directory/06-frontend.yaml"
 kubectl rollout status deployment/bankfrontend -n "$AKS_NAMESPACE" --timeout=300s
 kubectl wait --for=condition=Ready pod -l app=bankfrontend -n "$AKS_NAMESPACE" --timeout=300s
