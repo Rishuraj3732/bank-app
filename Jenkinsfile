@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    tools {
+        jdk 'JDK21'
+    }
+
     environment {
         DOCKERHUB_NAMESPACE = 'rishuraj1'
         AKS_NAMESPACE = 'bank'
@@ -34,6 +38,10 @@ for tool in java mvn docker az kubectl python3; do
         exit 1
     fi
 done
+if [ "${JAVA_HOME:-}" != "/usr/lib/jvm/java-21-openjdk-amd64" ]; then
+    echo "ERROR: Jenkins JDK21 must set JAVA_HOME to /usr/lib/jvm/java-21-openjdk-amd64 (got '${JAVA_HOME:-unset}')." >&2
+    exit 1
+fi
 java -version
 mvn -version
 docker --version
